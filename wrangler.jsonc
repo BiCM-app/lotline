@@ -1,0 +1,30 @@
+// Lotline at lotline.bicm.app. Deployed from main after the gate passes. Code-owned
+// (CODEOWNERS).
+{
+  "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
+  "name": "bicm-lotline",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-06",
+  // "open": outside agents may call the MCP server and write to the inbox.
+  "vars": {
+    "DOOR": "open"
+  },
+  "d1_databases": [
+    { "binding": "INBOX", "database_name": "bicm-lotline-inbox", "database_id": "eba9dad0-7b24-4f4c-8a34-749697252e55", "migrations_dir": "migrations" }
+  ],
+  // Counts only: door, tool, outcome, declared agent family. No IP address, no user agent.
+  "analytics_engine_datasets": [
+    { "binding": "EVENTS", "dataset": "bicm_lotline" }
+  ],
+  // No *.workers.dev address and no preview addresses: Lotline exists only on its domain.
+  // Daily at 03:00 UTC: messages older than the retention period are deleted (src/content.js).
+  "triggers": { "crons": ["0 3 * * *"] },
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": false
+  },
+  "routes": [
+    { "pattern": "lotline.bicm.app", "custom_domain": true }
+  ]
+}

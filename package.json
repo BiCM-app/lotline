@@ -1,0 +1,9 @@
+{
+  "name": "lotline",
+  "private": true,
+  "type": "module",
+  "description": "Lotline at lotline.bicm.app. The Worker has no dependencies; wrangler is used only to deploy.",
+  "devDependencies": {
+    "wrangler": "4.151.1"
+  }
+}

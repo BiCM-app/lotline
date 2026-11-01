@@ -1,0 +1,12 @@
+# The gate, the tests, the deploy, the configuration, the database schema, the dependencies
+# and the rules need a code owner's approval.
+/.github/             @renato-bicm
+/gate/                @renato-bicm
+/test/                @renato-bicm
+/migrations/          @renato-bicm
+/wrangler.jsonc       @renato-bicm
+/package.json         @renato-bicm
+/package-lock.json    @renato-bicm
+/POLICY.md            @renato-bicm
+/AGENTS.md            @renato-bicm
+/CODEOWNERS           @renato-bicm
