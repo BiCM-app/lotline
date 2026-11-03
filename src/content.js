@@ -52,6 +52,76 @@ export const OBJECT_MODEL_TEXT =
 const PUBLISHED = "2026-11-03";
 const REVIEW_ON = "2027-05-03";
 
+/*
+ * Terms that bicm.app uses, in English and German, each defined only by restating the
+ * English page (https://www.bicm.app/) and the German page (https://www.bicm.app/de/).
+ * A term the site uses without defining it is left out.
+ */
+export const GLOSSARY = [
+  { en: "Feasibility study", de: "Machbarkeitsstudie",
+    en_text: "An early answer to what could be done for a building, a site or a district, and whether it is worth it, given before detailed design is commissioned.",
+    de_text: "Eine frühe Antwort darauf, was für ein Gebäude, ein Grundstück oder ein Quartier möglich ist und ob es sich lohnt, bevor die Planung beauftragt wird." },
+  { en: "Seven dimensions", de: "Sieben Dimensionen",
+    en_text: "The dimensions on which every scenario is reported: space, time, schedule, cost, funding, environment and people.",
+    de_text: "Die Dimensionen, in denen jede Variante bewertet wird: Fläche, Dauer, Ablauf, Kosten, Förderung, Umwelt und Menschen." },
+  { en: "Space", de: "Fläche",
+    en_text: "Areas, volumes and programme fit; space gained or lost.",
+    de_text: "Flächen, Volumen und Nutzung; gewonnene oder verlorene Fläche." },
+  { en: "Time", de: "Dauer",
+    en_text: "Durations of works and approvals; payback.",
+    de_text: "Bauzeit, Genehmigung, Amortisation." },
+  { en: "Schedule", de: "Ablauf",
+    en_text: "Which measures, in which order and in which year.",
+    de_text: "Welche Maßnahmen, in welcher Reihenfolge und in welchem Jahr." },
+  { en: "Cost", de: "Kosten",
+    en_text: "Investment, running cost and life-cycle cost.",
+    de_text: "Investition, Betrieb, Lebenszyklus." },
+  { en: "Funding", de: "Förderung",
+    en_text: "Subsidies, grants, tax relief and financing, with eligibility.",
+    de_text: "Förderprogramme, Zuschüsse, steuerliche Vorteile und Finanzierung, mit Förderfähigkeit." },
+  { en: "Environment", de: "Umwelt",
+    en_text: "Operational energy, and operational and embodied CO₂.",
+    de_text: "Betriebsenergie, Betriebs- und graue Emissionen." },
+  { en: "People", de: "Menschen",
+    en_text: "The effect on the people a building serves.",
+    de_text: "Die Wirkung auf die Menschen, die ein Gebäude nutzen." },
+  { en: "Input", de: "Eingabe",
+    en_text: "What is known about a place, each input with its source: the client, a default, a benchmark, or a suggestion the user confirms.",
+    de_text: "Was über einen Ort bekannt ist, jede Eingabe mit Quelle: Auftraggeber, Standardwert, Kennwert oder ein Vorschlag, den die Nutzerin oder der Nutzer bestätigt." },
+  { en: "Scenario", de: "Variante",
+    en_text: "One of several options a study proposes, generated from a cited catalogue of measures. The professional selects, edits or rejects each scenario.",
+    de_text: "Eine von mehreren Optionen, die eine Studie vorschlägt, erzeugt aus einem belegten Maßnahmenkatalog. Die Fachperson wählt jede Variante aus, ändert sie oder verwirft sie." },
+  { en: "Checks", de: "Prüfung",
+    en_text: "Rules, regulations and limits every scenario must pass. Regulatory compliance and technical risk are checks.",
+    de_text: "Regeln, Vorschriften und Grenzen, die jede Variante bestehen muss. Rechtliche Anforderungen und technische Risiken sind Prüfungen." },
+  { en: "Evaluation", de: "Bewertung",
+    en_text: "Each scenario evaluated by fixed rules on the seven dimensions, each dimension with its uncertainty band.",
+    de_text: "Jede Variante nach festen Regeln in den sieben Dimensionen bewertet, jede Dimension mit ihrer Unsicherheitsspanne." },
+  { en: "Comparison", de: "Vergleich",
+    en_text: "The trade-offs between scenarios, with the weights stated.",
+    de_text: "Abwägungen zwischen Varianten, mit offengelegten Gewichten." },
+  { en: "Explanation", de: "Erläuterung",
+    en_text: "A written account of the result that quotes its numbers by reference. It may differ between runs and never changes a number.",
+    de_text: "Ein Text zum Ergebnis, der seine Zahlen per Verweis zitiert. Er kann je Lauf abweichen und ändert nie eine Zahl." },
+  { en: "Report", de: "Bericht",
+    en_text: "The account of a study with full provenance: every input, every assumption and the engine version.",
+    de_text: "Die Darstellung einer Studie mit vollständiger Herkunft: jede Eingabe, jede Annahme, die Version der Rechenlogik." },
+  { en: "Provenance", de: "Herkunft",
+    en_text: "Where every input and assumption comes from, with the engine version. Every study is stored with its provenance and can be run again to the same answer.",
+    de_text: "Woher jede Eingabe und jede Annahme stammt, mit der Version der Rechenlogik. Jede Studie wird mit ihrer Herkunft gespeichert und lässt sich zum selben Ergebnis wiederholen." },
+  { en: "Deterministic engine", de: "Deterministische Rechenlogik",
+    en_text: "The engine every number in a result comes from, using cited assumptions. The same scenario, with the same inputs, assumptions and engine version, always gives the same result. A language model may explain a result; it never computes one.",
+    de_text: "Die Rechenlogik, aus der jede Zahl in einem Ergebnis stammt, mit belegten Annahmen. Dieselbe Variante mit denselben Eingaben, Annahmen und derselben Version der Rechenlogik ergibt immer dasselbe Ergebnis. Ein Sprachmodell darf ein Ergebnis erläutern, aber nie berechnen." },
+  { en: "Module", de: "Modul",
+    en_text: "One configured use case: a slice of the grid of scales and disciplines for one kind of client job, with its own inputs, measures and validation. One engine runs many modules.",
+    de_text: "Ein konfigurierter Anwendungsfall: ein Ausschnitt des Rasters aus Maßstäben und Disziplinen für eine Art von Auftrag, mit eigenen Eingaben, Maßnahmen und Validierung. Ein Kern, viele Module." },
+];
+
+/** The glossary as plain text: each term in English and German, with both definitions. */
+export const GLOSSARY_TEXT =
+  "Terms used on bicm.app, in English and German (Begriffe von bicm.app, englisch und deutsch). " +
+  GLOSSARY.map((g) => `${g.en} (${g.de}): ${g.en_text} / ${g.de_text}`).join(" ");
+
 export const NOTES = [
   {
     id: "what-bicm-builds",
@@ -96,6 +166,15 @@ export const NOTES = [
     source: "Lotline",
     published: PUBLISHED,
     review_on: REVIEW_ON,
+  },
+  {
+    id: "glossary",
+    title: "Glossary: BiCM's terms in English and German",
+    text: GLOSSARY_TEXT,
+    terms: GLOSSARY,
+    source: "bicm.app",
+    published: "2026-11-03",
+    review_on: "2027-05-03",
   },
 ];
 

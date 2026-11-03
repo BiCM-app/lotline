@@ -250,3 +250,70 @@ test("lengths count characters as JSON Schema maxLength does", () => {
   assert.equal(refusal({ ...ok, text: "x", agent: emoji.repeat(MAX_FIELD) }), null);
   assert.match(refusal({ ...ok, text: "x", agent: emoji.repeat(MAX_FIELD + 1) }), /agent is limited/);
 });
+
+test("own traffic: a request with x-lotline-test: 1 is counted as test, one without as normal", async () => {
+  const { TEST_HEADER } = await import("../src/worker.js");
+  const env = fakeEnv();
+  const msg = { kind: "question", topic: "method", text: "How are scenarios checked?", agent: "claudebot" };
+  await post("/inbox", msg, env);
+  assert.deepEqual(env.events.at(-1).blobs, ["inbox", "", "ok", "claudebot", "question", "method"]);
+  await post("/inbox", msg, env, { [TEST_HEADER]: "1" });
+  assert.deepEqual(env.events.at(-1).blobs, ["inbox", "", "test", "", "", ""]);
+  // The message itself is stored either way: the header changes only how it is counted.
+  assert.equal(env.rows.length, 2);
+  await post("/mcp", call("list_notes", {}), env, { "X-Lotline-Test": "1" });
+  assert.deepEqual(env.events.at(-1).blobs.slice(0, 3), ["mcp", "list_notes", "test"]);
+  await post("/mcp", call("list_notes", {}), env);
+  assert.deepEqual(env.events.at(-1).blobs.slice(0, 3), ["mcp", "list_notes", "ok"]);
+  await worker.fetch(new Request(`${ORIGIN}/llms.txt`, { headers: { [TEST_HEADER]: "1" } }), env);
+  assert.equal(env.events.at(-1).blobs[2], "test");
+  for (const v of ["0", "true", ""]) {
+    await worker.fetch(new Request(`${ORIGIN}/`, { headers: { [TEST_HEADER]: v } }), env);
+    assert.equal(env.events.at(-1).blobs[2], "ok", v);
+  }
+  // Agents are not told about the header.
+  assert.ok(!llmsTxt(ORIGIN).toLowerCase().includes(TEST_HEADER));
+});
+
+test("sitemap lists the public pages and every note with its published date; robots.txt names it", async () => {
+  const res = await worker.fetch(new Request(`${ORIGIN}/sitemap.xml`), fakeEnv());
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /^application\/xml/);
+  const xml = await res.text();
+  assert.match(xml, /^<\?xml version="1\.0" encoding="UTF-8"\?>\n<urlset xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/);
+  for (const p of ["/", "/llms.txt", "/schema", "/privacy", "/notes"]) assert.ok(xml.includes(`<loc>${ORIGIN}${p}</loc>`), p);
+  for (const n of NOTES) assert.ok(xml.includes(`<loc>${ORIGIN}/notes/${n.id}</loc><lastmod>${n.published}</lastmod>`), n.id);
+  assert.equal((xml.match(/<url>/g) || []).length, 5 + NOTES.length);
+  // Every listed address answers 200.
+  for (const [, loc] of xml.matchAll(/<loc>([^<]+)<\/loc>/g)) assert.equal((await worker.fetch(new Request(loc), fakeEnv())).status, 200, loc);
+  const robots = await (await worker.fetch(new Request(`${ORIGIN}/robots.txt`), fakeEnv())).text();
+  assert.equal(robots, `User-agent: *\nAllow: /\n\nSitemap: ${ORIGIN}/sitemap.xml\n`);
+});
+
+test("server.json describes the remote MCP server for the MCP Registry", async () => {
+  const { readFileSync } = await import("node:fs");
+  const sj = JSON.parse(readFileSync(new URL("../server.json", import.meta.url), "utf8"));
+  const init = await mcp({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }, fakeEnv());
+  assert.equal(sj.$schema, "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json");
+  assert.match(sj.name, /^app\.bicm\/[a-zA-Z0-9._-]+$/);
+  assert.ok(sj.description.length >= 1 && sj.description.length <= 100);
+  assert.equal(sj.version, init.result.serverInfo.version);
+  assert.deepEqual(sj.remotes, [{ type: "streamable-http", url: `${ORIGIN}/mcp` }]);
+  assert.equal(sj.packages, undefined);
+});
+
+test("the glossary note restates bicm.app in English and German", async () => {
+  const g = NOTES.find((n) => n.id === "glossary");
+  assert.equal(g.source, "bicm.app");
+  assert.equal(g.published, "2026-11-03");
+  assert.equal(g.review_on, "2027-05-03");
+  assert.ok(g.terms.length > 0);
+  for (const t of g.terms) {
+    for (const k of ["en", "de", "en_text", "de_text"]) assert.ok(typeof t[k] === "string" && t[k].trim(), `${t.en} ${k}`);
+    assert.ok(g.text.includes(`${t.en} (${t.de}): ${t.en_text} / ${t.de_text}`), t.en);
+  }
+  const dims = ["Space", "Time", "Schedule", "Cost", "Funding", "Environment", "People"];
+  for (const d of dims) assert.ok(g.terms.some((t) => t.en === d), d);
+  const served = await (await worker.fetch(new Request(`${ORIGIN}/notes/glossary`), fakeEnv())).json();
+  assert.deepEqual(served, JSON.parse(JSON.stringify(g)));
+});
