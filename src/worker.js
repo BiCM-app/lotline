@@ -8,13 +8,18 @@
  *   /notes, /notes/x  the public notes as JSON
  *   /schema           the JSON Schema of an inbox message and its receipt
  *   /inbox (POST)     a structured message from another agent
+ *   /sitemap.xml      the public pages and notes, for crawlers
+ *   /robots.txt       allows all and names the sitemap
+ *   /privacy          the privacy notice
  *
  * The door is open only when DOOR is "open"; anything else, or no value, keeps it closed.
  * Outside text is stored and returned only as data: no language model runs here, and
  * nothing an outside agent writes is followed as an instruction. Messages with contact
  * details are refused; senders are asked to send no personal data. Counts go to Analytics
  * Engine without IP address or user agent, and a refused message is counted without its
- * fields.
+ * fields. A request with the header "x-lotline-test: 1" is the maintainers' own traffic
+ * and is counted with its usual outcome, marked "test" in a separate field (README.md, "For
+ * maintainers").
  */
 
 import { ABOUT, NOTES, KINDS, TOPICS, PRIVACY, RETENTION_MONTHS, SEARCH_TERMS, OBJECT_TYPES } from "./content.js";
@@ -33,6 +38,8 @@ export const MAX_TEXT = 4000;
 export const MAX_FIELD = 200;
 export const MAX_BODY = 16384;
 const SITE = "https://lotline.bicm.app";
+// The maintainers' own requests carry this header with the value "1" (see count()).
+export const TEST_HEADER = "x-lotline-test";
 
 // The fields of an inbox message, from the same constants refusal() checks.
 const MESSAGE_PROPERTIES = {
@@ -232,10 +239,19 @@ export function family(agent) {
   return /^[a-z0-9-]{1,32}$/.test(a) ? a : a ? "other" : "";
 }
 
-// blobs: door, tool, outcome, agent family, kind, topic. Kind and topic come from fixed lists.
-function count(env, door, tool, outcome, agent, msg) {
+/** True when a request carries the maintainers' test header (x-lotline-test: 1). */
+export function isTest(headers) {
+  return (headers.get(TEST_HEADER) || "").trim() === "1";
+}
+
+// blobs: door, tool, outcome, agent family, kind, topic, traffic. Kind and topic come from
+// fixed lists. traffic is "test" for a request with the maintainers' header and "" otherwise,
+// so counts can exclude test traffic while its outcome (ok, rejected, error) stays as it was.
+// The header can be spoofed; a spoofed one only marks a request as test, and changes nothing
+// else.
+function count(env, door, tool, outcome, agent, msg, test = false) {
   const ok = outcome === "ok";
-  try { env.EVENTS?.writeDataPoint({ blobs: [door, tool || "", outcome, ok ? family(agent) : "", ok && msg ? msg.kind : "", ok && msg ? msg.topic : ""], indexes: [door] }); } catch { /* counts never break a request */ }
+  try { env.EVENTS?.writeDataPoint({ blobs: [door, tool || "", outcome, ok ? family(agent) : "", ok && msg ? msg.kind : "", ok && msg ? msg.topic : "", test ? "test" : ""], indexes: [door] }); } catch { /* counts never break a request */ }
 }
 
 /** Deletes messages older than the retention period; run daily by the cron trigger. */
@@ -246,8 +262,10 @@ export async function purge(env, now = new Date()) {
   return cut.toISOString();
 }
 
-/** One MCP JSON-RPC message; returns the response object, or null for a notification. */
-export async function mcp(req, env) {
+/** One MCP JSON-RPC message; returns the response object, or null for a notification. A test
+ * request (isTest) is marked "test" in its count. */
+export async function mcp(req, env, test = false) {
+  const tally = (tool, outcome, agent, msg) => count(env, "mcp", tool, outcome, agent, msg, test);
   const id = req && typeof req === "object" && "id" in req ? req.id : null;
   const ok = (result) => ({ jsonrpc: "2.0", id, result });
   const err = (code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });
@@ -266,7 +284,7 @@ export async function mcp(req, env) {
       case "resources/read": {
         const uri = req.params && typeof req.params === "object" ? req.params.uri : undefined;
         const r = RESOURCES.find((x) => x.uri === uri);
-        count(env, "mcp", "resources/read", r ? "ok" : "rejected");
+        tally("resources/read", r ? "ok" : "rejected");
         if (!r) return err(-32002, "Resource not found");
         return ok({ contents: [{ uri: r.uri, mimeType: r.mimeType, text: JSON.stringify(readResource(r.uri), null, 2) }] });
       }
@@ -276,13 +294,13 @@ export async function mcp(req, env) {
         const args = params.arguments && typeof params.arguments === "object" && !Array.isArray(params.arguments) ? params.arguments : {};
         const content = (t) => ok({ content: [{ type: "text", text: typeof t === "string" ? t : JSON.stringify(t, null, 2) }] });
         const fail = (t) => ok({ content: [{ type: "text", text: t }], isError: true });
-        if (name === "list_notes") { count(env, "mcp", name, "ok"); return content(NOTES.map(({ id: nid, title }) => ({ id: nid, title }))); }
-        if (name === "get_note") { const n = NOTES.find((x) => x.id === args.id); count(env, "mcp", name, n ? "ok" : "rejected"); return n ? content(n) : fail("No note with that id."); }
+        if (name === "list_notes") { tally(name, "ok"); return content(NOTES.map(({ id: nid, title }) => ({ id: nid, title }))); }
+        if (name === "get_note") { const n = NOTES.find((x) => x.id === args.id); tally(name, n ? "ok" : "rejected"); return n ? content(n) : fail("No note with that id."); }
         if (name === "leave_message") {
           const why = refusal(args);
-          if (why) { count(env, "mcp", name, "rejected"); return fail(why); }
+          if (why) { tally(name, "rejected"); return fail(why); }
           const receipt = await store(env, args);
-          count(env, "mcp", name, "ok", args.agent, args);
+          tally(name, "ok", args.agent, args);
           return content(receipt);
         }
         return err(-32602, "Unknown tool");
@@ -291,9 +309,32 @@ export async function mcp(req, env) {
         return err(-32601, "Method not found");
     }
   } catch {
-    count(env, "mcp", req.method, "error");
+    tally(req.method, "error");
     return err(-32603, "Internal error. The message was not stored.");
   }
+}
+
+// Public pages listed in the sitemap, besides /notes and each note.
+export const SITEMAP_PAGES = ["/", "/llms.txt", "/schema", "/privacy"];
+
+/** The sitemap (sitemaps.org protocol): public pages, /notes and each note with its published date. */
+export function sitemap(origin) {
+  const latest = NOTES.map((n) => n.published).sort().at(-1);
+  const url = (path, lastmod) => `  <url><loc>${esc(origin + path)}</loc>${lastmod ? `<lastmod>${lastmod}</lastmod>` : ""}</url>`;
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...SITEMAP_PAGES.map((p) => url(p)),
+    url("/notes", latest),
+    ...NOTES.map((n) => url(`/notes/${n.id}`, n.published)),
+    "</urlset>",
+    "",
+  ].join("\n");
+}
+
+/** robots.txt: every crawler may read every page; the sitemap is named. */
+export function robotsTxt(origin) {
+  return ["User-agent: *", "Allow: /", "", `Sitemap: ${origin}/sitemap.xml`, ""].join("\n");
 }
 
 function page(origin, open = true) {
@@ -314,10 +355,14 @@ export default {
     const url = new URL(request.url);
     const origin = url.origin;
     const open = env.DOOR === "open";
+    const test = isTest(request.headers);
+    const tally = (door, outcome, agent, msg) => count(env, door, "", outcome, agent, msg, test);
     if (request.method === "GET") {
-      if (url.pathname === "/") { count(env, "page", "", "ok"); return text(page(origin, open), "text/html; charset=utf-8"); }
-      if (url.pathname === "/llms.txt") { count(env, "llms", "", "ok"); return text(llmsTxt(origin, open)); }
+      if (url.pathname === "/") { tally("page", "ok"); return text(page(origin, open), "text/html; charset=utf-8"); }
+      if (url.pathname === "/llms.txt") { tally("llms", "ok"); return text(llmsTxt(origin, open)); }
       if (url.pathname === "/privacy") return text(PRIVACY);
+      if (url.pathname === "/sitemap.xml") { tally("sitemap", "ok"); return text(sitemap(origin), "application/xml; charset=utf-8"); }
+      if (url.pathname === "/robots.txt") { tally("robots", "ok"); return text(robotsTxt(origin)); }
       if (url.pathname === "/schema") { const r = publicJson(inboxSchema(origin)); r.headers.set("Content-Type", "application/schema+json; charset=utf-8"); return r; }
       if (url.pathname === "/notes") return publicJson(NOTES.map(({ id, title }) => ({ id, title })));
       const m = /^\/notes\/([a-z0-9-]{1,64})$/.exec(url.pathname);
@@ -339,19 +384,19 @@ export default {
       const body = read.body;
       if (!isMcp) {
         const why = refusal(body);
-        if (why) { count(env, "inbox", "", "rejected"); return json({ error: why }, 400); }
+        if (why) { tally("inbox", "rejected"); return json({ error: why }, 400); }
         try {
           const receipt = await store(env, body);
-          count(env, "inbox", "", "ok", body.agent, body);
+          tally("inbox", "ok", body.agent, body);
           return json(receipt, 201);
         } catch {
-          count(env, "inbox", "", "error");
+          tally("inbox", "error");
           return json({ error: "The inbox is not available. The message was not stored." }, 503);
         }
       }
       const method = request.headers.get("mcp-method");
       if (method && body && method !== body.method) return json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32600, message: "Mcp-Method does not match the body." } }, 400);
-      const res = await mcp(body, env);
+      const res = await mcp(body, env, test);
       return res ? json(res) : new Response(null, { status: 202, headers: HEADERS });
     }
     return json({ error: "Method not allowed" }, 405);

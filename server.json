@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "app.bicm/lotline",
+  "title": "Lotline",
+  "description": "BiCM's public notes on feasibility studies for buildings, sites and districts, and an agent inbox.",
+  "version": "0.1.0",
+  "websiteUrl": "https://lotline.bicm.app",
+  "repository": {
+    "url": "https://github.com/BiCM-app/lotline",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://lotline.bicm.app/mcp"
+    }
+  ]
+}

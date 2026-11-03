@@ -9,7 +9,11 @@
  *     no result on Lotline;
  *   - a change of the pinned configuration: Worker name, the single route, no workers.dev
  *     or preview addresses, no AI binding, only the known keys and bindings, DOOR open or
- *     closed.
+ *     closed;
+ *   - the maintainers' test header in anything the Worker serves;
+ *   - a note missing from the sitemap, or listed with a lastmod other than its published date;
+ *   - MCP Registry metadata (server.json) that names another namespace, another remote
+ *     or a package, or a version other than the server's.
  * Code-owned (CODEOWNERS).
  *
  * Usage: node gate/check.mjs
@@ -80,11 +84,31 @@ const worker = await import(pathToFileURL(join(process.cwd(), "src/worker.js")).
 const content = await import(pathToFileURL(join(process.cwd(), "src/content.js")).href);
 const env = { DOOR: "open", INBOX: { prepare: () => ({ bind: () => ({ run: async () => {} }) }) } };
 const get = async (path) => (await worker.default.fetch(new Request(`https://lotline.bicm.app${path}`), env)).text();
-const served = [["/", await get("/")], ["/llms.txt", await get("/llms.txt")], ["/privacy", await get("/privacy")], ["/notes", await get("/notes")], ["/schema", await get("/schema")]];
+const served = [["/", await get("/")], ["/llms.txt", await get("/llms.txt")], ["/privacy", await get("/privacy")], ["/notes", await get("/notes")], ["/schema", await get("/schema")], ["/sitemap.xml", await get("/sitemap.xml")], ["/robots.txt", await get("/robots.txt")]];
 for (const n of content.NOTES) served.push([`/notes/${n.id}`, await get(`/notes/${n.id}`)]);
 for (const method of ["initialize", "tools/list", "resources/list"]) served.push([`mcp ${method}`, JSON.stringify(await worker.mcp({ jsonrpc: "2.0", id: 1, method, params: {} }, env))]);
 for (const r of worker.RESOURCES) served.push([`mcp resources/read ${r.uri}`, JSON.stringify(await worker.mcp({ jsonrpc: "2.0", id: 1, method: "resources/read", params: { uri: r.uri } }, env))]);
 for (const [where, text] of served) checkPublic(`src/ (served at ${where})`, text);
+
+// The maintainers' test header is documented for maintainers only, never in what agents read.
+const testHeader = new RegExp(worker.TEST_HEADER, "i");
+for (const [where, text] of served) if (testHeader.test(text)) fail(`src/ (served at ${where})`, `The maintainers' header ${worker.TEST_HEADER} appears in served material.`);
+
+// Every note is in the sitemap with its published date as lastmod.
+const sitemapXml = served.find(([w]) => w === "/sitemap.xml")[1];
+for (const n of content.NOTES) if (!sitemapXml.includes(`<loc>https://lotline.bicm.app/notes/${n.id}</loc><lastmod>${n.published}</lastmod>`)) fail("src/worker.js", `Note ${n.id} is missing from /sitemap.xml or has the wrong lastmod.`);
+
+// The MCP Registry metadata (server.json) names this server only, and is public material.
+const serverJson = readFileSync("server.json", "utf8");
+checkPublic("server.json", serverJson);
+const sj = JSON.parse(serverJson);
+const init = await worker.mcp({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }, env);
+if (!/^https:\/\/static\.modelcontextprotocol\.io\/schemas\/[0-9-]+\/server\.schema\.json$/.test(sj.$schema || "")) fail("server.json", "$schema is the official MCP Registry server.json schema.");
+if (!/^app\.bicm(\.[a-z0-9-]+)*\/[a-zA-Z0-9._-]+$/.test(sj.name || "")) fail("server.json", "name lies in the app.bicm namespace (reverse DNS of bicm.app).");
+if (typeof sj.description !== "string" || !sj.description || sj.description.length > 100) fail("server.json", "description is 1 to 100 characters.");
+if (sj.version !== init.result.serverInfo.version) fail("server.json", "version equals the MCP serverInfo version.");
+if ((sj.packages || []).length) fail("server.json", "Lotline is a remote server only: no packages.");
+if (JSON.stringify(sj.remotes) !== JSON.stringify([{ type: "streamable-http", url: "https://lotline.bicm.app/mcp" }])) fail("server.json", "The only remote is streamable-http at https://lotline.bicm.app/mcp.");
 
 const cfg = JSON.parse(readFileSync("wrangler.jsonc", "utf8").replace(/^\s*\/\/.*$/gm, ""));
 const routes = (cfg.routes || []).map((r) => r.pattern);
