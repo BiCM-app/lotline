@@ -12,6 +12,46 @@ export const ABOUT = {
   status: "Phase 1: public notes and an inbox. No calculation is offered yet.",
 };
 
+// Words an agent or a search engine may look for, restated from https://bicm.app only.
+export const SEARCH_TERMS = [
+  "feasibility study",
+  "early feasibility studies for buildings, sites and districts",
+  "interventions in the built environment",
+  "energy retrofit",
+  "portfolio screening",
+  "conversion and new build",
+  "site study",
+  "district and city",
+  "reuse and circular",
+  "scenarios",
+  "seven dimensions: space, time, schedule, cost, funding, environment, people",
+  "regulatory compliance and technical risk checks",
+  "uncertainty band",
+  "provenance of every input and assumption",
+  "deterministic engine",
+];
+
+/*
+ * The types of object Lotline knows. Knowledge, request and offer exist; capability and
+ * deliverable are reserved names with none yet.
+ */
+export const OBJECT_TYPES = [
+  { type: "knowledge", status: "exists", served: "/notes", description: "BiCM's public notes." },
+  { type: "request", status: "exists", served: "POST /inbox", description: "An inbox message of kind request." },
+  { type: "offer", status: "exists", served: "POST /inbox", description: "An inbox message of kind offer." },
+  { type: "capability", status: "reserved", served: null, description: "A reserved type. None yet." },
+  { type: "deliverable", status: "reserved", served: null, description: "A reserved type. None yet." },
+];
+
+/** The object model as one paragraph of plain text, from OBJECT_TYPES. */
+export const OBJECT_MODEL_TEXT =
+  "Lotline knows these types of object. " +
+  OBJECT_TYPES.map((o) => `${o.type[0].toUpperCase()}${o.type.slice(1)}${o.served ? ` (${o.served})` : ""}: ${o.description}`).join(" ");
+
+// Notes carry the date they were published and the date they are next reviewed (ISO 8601).
+const PUBLISHED = "2026-11-03";
+const REVIEW_ON = "2027-05-03";
+
 export const NOTES = [
   {
     id: "what-bicm-builds",
@@ -19,6 +59,8 @@ export const NOTES = [
     text:
       "BiCM builds feasibility studies of interventions in the built environment, across disciplines and scales. Each study reports on seven dimensions: space, time, schedule, cost, funding, environment and people. Regulatory compliance and technical risk are checks every scenario passes. A module is one configured use case, such as the energy-retrofit feasibility of a whole residential building. Results are options and evidence for qualified professionals and their clients. Certified assessments and advice stay with those professionals.",
     source: "BiCM",
+    published: PUBLISHED,
+    review_on: REVIEW_ON,
   },
   {
     id: "deterministic-boundary",
@@ -26,6 +68,8 @@ export const NOTES = [
     text:
       "Scenarios may be proposed by a catalogue, by optimisation or by a language model. Every scenario then passes the same deterministic feasibility checks and evaluation. The same scenario, inputs, assumption set and engine version always give the same result. A language model may explain a result; it never computes one.",
     source: "BiCM",
+    published: PUBLISHED,
+    review_on: REVIEW_ON,
   },
   {
     id: "provenance",
@@ -33,6 +77,8 @@ export const NOTES = [
     text:
       "Every input records where it came from: the client, a default, a benchmark, or a suggestion the user confirmed. Every assumption carries a citation and a review date, and assumption sets are versioned and frozen once published. Every result carries an uncertainty band and its provenance.",
     source: "BiCM",
+    published: PUBLISHED,
+    review_on: REVIEW_ON,
   },
   {
     id: "what-lotline-offers",
@@ -40,6 +86,16 @@ export const NOTES = [
     text:
       "Phase 1 offers BiCM's public notes and an inbox. Agents may leave a request, an offer, a question or a bug report, with no contact details and no personal data. BiCM reads the inbox as data. Lotline makes no commitment, quotes no price and computes no result.",
     source: "Lotline policy (POLICY.md)",
+    published: PUBLISHED,
+    review_on: REVIEW_ON,
+  },
+  {
+    id: "object-model",
+    title: "The types of object in Lotline",
+    text: OBJECT_MODEL_TEXT,
+    source: "Lotline",
+    published: PUBLISHED,
+    review_on: REVIEW_ON,
   },
 ];
 

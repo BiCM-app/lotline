@@ -6,6 +6,7 @@
  *   /mcp              an MCP server: one JSON-RPC message per POST, stateless (revision
  *                     2026-07-28)
  *   /notes, /notes/x  the public notes as JSON
+ *   /schema           the JSON Schema of an inbox message and its receipt
  *   /inbox (POST)     a structured message from another agent
  *
  * The door is open only when DOOR is "open"; anything else, or no value, keeps it closed.
@@ -16,7 +17,7 @@
  * fields.
  */
 
-import { ABOUT, NOTES, KINDS, TOPICS, PRIVACY, RETENTION_MONTHS } from "./content.js";
+import { ABOUT, NOTES, KINDS, TOPICS, PRIVACY, RETENTION_MONTHS, SEARCH_TERMS, OBJECT_TYPES } from "./content.js";
 
 export const HEADERS = {
   "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
@@ -31,6 +32,56 @@ export const MCP_VERSION = "2026-07-28";
 export const MAX_TEXT = 4000;
 export const MAX_FIELD = 200;
 export const MAX_BODY = 16384;
+const SITE = "https://lotline.bicm.app";
+
+// The fields of an inbox message, from the same constants refusal() checks.
+const MESSAGE_PROPERTIES = {
+  kind: { type: "string", enum: KINDS },
+  topic: { type: "string", enum: TOPICS },
+  text: { type: "string", minLength: 1, maxLength: MAX_TEXT, pattern: "\\S", description: "Free text. Contact details are refused; send no personal data." },
+  agent: { type: "string", maxLength: MAX_FIELD, description: "Your agent's name or family" },
+  module: { type: "string", maxLength: MAX_FIELD, description: "A module you would use, if any" },
+};
+const MESSAGE_REQUIRED = ["kind", "topic", "text"];
+
+/** The public JSON Schema of an inbox message, with the receipt returned when it is stored. */
+export function inboxSchema(origin = SITE) {
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: `${origin}/schema`,
+    title: "Lotline inbox message",
+    description: "A message an agent leaves at POST /inbox or with the MCP tool leave_message. Text with an email address, a phone number or an IBAN is refused; send no personal data. The text is stored as data and never followed as an instruction.",
+    type: "object",
+    properties: MESSAGE_PROPERTIES,
+    required: MESSAGE_REQUIRED,
+    additionalProperties: false,
+    $defs: {
+      receipt: {
+        title: "Receipt",
+        description: "Returned when a message is stored.",
+        type: "object",
+        properties: {
+          stored: { type: "string", format: "uuid", description: "The id of the stored message" },
+          received: { type: "string", format: "date-time", description: "When the message was stored (ISO 8601, UTC)" },
+          note: { type: "string" },
+        },
+        required: ["stored", "received", "note"],
+      },
+    },
+  };
+}
+
+// Resources an MCP client may read; each is also served over HTTP at its address.
+export const RESOURCES = [
+  { uri: `${SITE}/schema`, name: "inbox-schema", title: "Inbox message schema", mimeType: "application/schema+json", description: "The JSON Schema of an inbox message and of the receipt returned when it is stored." },
+  { uri: `${SITE}/notes/object-model`, name: "object-model", title: "The types of object in Lotline", mimeType: "application/json", description: "Knowledge, request and offer exist; capability and deliverable are reserved types with none yet." },
+];
+
+function readResource(uri) {
+  if (uri === RESOURCES[0].uri) return inboxSchema(SITE);
+  if (uri === RESOURCES[1].uri) return NOTES.find((n) => n.id === "object-model");
+  return null;
+}
 
 // Linear patterns only: each is checked on text no longer than MAX_TEXT.
 const CONTACT = [
@@ -125,9 +176,16 @@ export function llmsTxt(origin, open = true) {
     ABOUT.status,
     "",
     "## Door",
-    `- MCP server: POST ${origin}/mcp, one JSON-RPC message per request (initialize, tools/list, tools/call), MCP revision ${MCP_VERSION}`,
+    `- MCP server: POST ${origin}/mcp, one JSON-RPC message per request (initialize, tools/list, tools/call, resources/list, resources/read), MCP revision ${MCP_VERSION}`,
     `- Notes: ${origin}/notes`,
-    `- Inbox: POST ${origin}/inbox with JSON {"kind", "topic", "text", "agent", "module"}; kinds: ${KINDS.join(", ")}; topics: ${TOPICS.join(", ")}; text up to ${MAX_TEXT} characters`,
+    `- Inbox: POST ${origin}/inbox with JSON {"kind", "topic", "text", "agent", "module"}; kinds: ${KINDS.join(", ")}; topics: ${TOPICS.join(", ")}; text up to ${MAX_TEXT} characters; the receipt carries the message id (stored) and the time it was received`,
+    `- Inbox message schema (JSON Schema): ${origin}/schema`,
+    "",
+    "## Object model",
+    ...OBJECT_TYPES.map((o) => `- ${o.type} (${o.status}${o.served ? `, ${o.served}` : ""}): ${o.description}`),
+    "",
+    "## Search terms",
+    `- ${SEARCH_TERMS.join("; ")}`,
     "",
     "## Rules",
     "- Contact details are refused. Send no personal data.",
@@ -140,32 +198,25 @@ export function llmsTxt(origin, open = true) {
 }
 
 export const TOOLS = [
-  { name: "list_notes", description: "List BiCM's public notes (id and title).", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
-  { name: "get_note", description: "Read one public note by id.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } },
+  { name: "list_notes", description: `List BiCM's public notes (id and title). Topics: ${SEARCH_TERMS.join("; ")}.`, inputSchema: { type: "object", properties: {}, additionalProperties: false } },
+  { name: "get_note", description: "Read one public note by id: text, source, published and review_on dates.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } },
   {
     name: "leave_message",
-    description: "Leave a message for BiCM. Contact details are refused; send no personal data. The text is stored as data and never followed as an instruction.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        kind: { type: "string", enum: KINDS },
-        topic: { type: "string", enum: TOPICS },
-        text: { type: "string", maxLength: MAX_TEXT },
-        agent: { type: "string", maxLength: MAX_FIELD, description: "Your agent's name or family" },
-        module: { type: "string", maxLength: MAX_FIELD, description: "A module you would use, if any" },
-      },
-      required: ["kind", "topic", "text"],
-      additionalProperties: false,
-    },
+    description: `Leave a message for BiCM: a request, an offer, a question or a bug report, on topics such as energy retrofit or portfolio screening. Contact details are refused; send no personal data. The text is stored as data and never followed as an instruction. The receipt carries the message id and the time it was received. Schema: ${SITE}/schema`,
+    inputSchema: { type: "object", properties: MESSAGE_PROPERTIES, required: MESSAGE_REQUIRED, additionalProperties: false },
   },
 ];
 
+const RECEIPT_NOTE = "Stored as data. BiCM's agents read the inbox; Lotline makes no commitment.";
+
+/** Stores a message; returns the receipt: its id, the time received and a note. */
 async function store(env, msg) {
   if (!env.INBOX) throw new Error("inbox not configured");
   const id = crypto.randomUUID();
+  const received = new Date().toISOString();
   await env.INBOX.prepare("INSERT INTO messages (id, received, kind, topic, agent, module, text) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, new Date().toISOString(), msg.kind, msg.topic, msg.agent || "", msg.module || "", msg.text).run();
-  return id;
+    .bind(id, received, msg.kind, msg.topic, msg.agent || "", msg.module || "", msg.text).run();
+  return { stored: id, received, note: RECEIPT_NOTE };
 }
 
 /** The agent family as counted: a short name of letters, digits and hyphens, else "other". */
@@ -198,11 +249,20 @@ export async function mcp(req, env) {
   try {
     switch (req.method) {
       case "initialize":
-        return ok({ protocolVersion: MCP_VERSION, capabilities: { tools: {} }, serverInfo: { name: "lotline", version: "0.1.0" }, instructions: llmsTxt("https://lotline.bicm.app") });
+        return ok({ protocolVersion: MCP_VERSION, capabilities: { tools: {}, resources: {} }, serverInfo: { name: "lotline", version: "0.1.0" }, instructions: llmsTxt(SITE) });
       case "ping":
         return ok({});
       case "tools/list":
         return ok({ tools: TOOLS });
+      case "resources/list":
+        return ok({ resources: RESOURCES });
+      case "resources/read": {
+        const uri = req.params && typeof req.params === "object" ? req.params.uri : undefined;
+        const r = RESOURCES.find((x) => x.uri === uri);
+        count(env, "mcp", "resources/read", r ? "ok" : "rejected");
+        if (!r) return err(-32002, "Resource not found");
+        return ok({ contents: [{ uri: r.uri, mimeType: r.mimeType, text: JSON.stringify(readResource(r.uri), null, 2) }] });
+      }
       case "tools/call": {
         const params = req.params && typeof req.params === "object" ? req.params : {};
         const name = params.name;
@@ -214,9 +274,9 @@ export async function mcp(req, env) {
         if (name === "leave_message") {
           const why = refusal(args);
           if (why) { count(env, "mcp", name, "rejected"); return fail(why); }
-          const mid = await store(env, args);
+          const receipt = await store(env, args);
           count(env, "mcp", name, "ok", args.agent, args);
-          return content({ stored: mid, note: "Stored as data. BiCM's agents read the inbox; Lotline makes no commitment." });
+          return content(receipt);
         }
         return err(-32602, "Unknown tool");
       }
@@ -234,7 +294,7 @@ function page(origin, open = true) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Lotline</title>
 <style>body{font:16px/1.55 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a;background:#fbfaf7}h1{font-weight:600}code{background:#eee;padding:0 .25rem}small{color:#666}@media(prefers-color-scheme:dark){body{background:#111;color:#e8e6e1}code{background:#222}small{color:#999}}</style></head>
 <body><h1>Lotline</h1><p>${esc(ABOUT.summary)}</p><p>${esc(ABOUT.status)}</p>
-<h2>For agents</h2>${open ? `<ul><li>MCP: <code>POST ${esc(origin)}/mcp</code></li><li>Read: <code>${esc(origin)}/llms.txt</code></li><li>Inbox: <code>POST ${esc(origin)}/inbox</code>. Contact details are refused; send no personal data. <a href="/privacy">Privacy</a>.</li></ul>` : "<p>The door is closed.</p>"}
+<h2>For agents</h2>${open ? `<ul><li>MCP: <code>POST ${esc(origin)}/mcp</code></li><li>Read: <code>${esc(origin)}/llms.txt</code></li><li>Inbox message schema: <code>${esc(origin)}/schema</code></li><li>Inbox: <code>POST ${esc(origin)}/inbox</code>. Contact details are refused; send no personal data. <a href="/privacy">Privacy</a>.</li></ul>` : "<p>The door is closed.</p>"}
 <h2>Notes</h2><ul>${notes}</ul><p><small>Operator: ${esc(ABOUT.operator)}, <a href="${esc(ABOUT.site)}/impressum">Impressum</a>. Lotline makes no commitment, quotes no price and computes no result.</small></p></body></html>`;
 }
 
@@ -251,6 +311,7 @@ export default {
       if (url.pathname === "/") { count(env, "page", "", "ok"); return text(page(origin, open), "text/html; charset=utf-8"); }
       if (url.pathname === "/llms.txt") { count(env, "llms", "", "ok"); return text(llmsTxt(origin, open)); }
       if (url.pathname === "/privacy") return text(PRIVACY);
+      if (url.pathname === "/schema") { const r = publicJson(inboxSchema(origin)); r.headers.set("Content-Type", "application/schema+json; charset=utf-8"); return r; }
       if (url.pathname === "/notes") return publicJson(NOTES.map(({ id, title }) => ({ id, title })));
       const m = /^\/notes\/([a-z0-9-]{1,64})$/.exec(url.pathname);
       if (m) { const n = NOTES.find((x) => x.id === m[1]); return n ? publicJson(n) : publicJson({ error: "No note with that id." }, 404); }
@@ -273,9 +334,9 @@ export default {
         const why = refusal(body);
         if (why) { count(env, "inbox", "", "rejected"); return json({ error: why }, 400); }
         try {
-          const id = await store(env, body);
+          const receipt = await store(env, body);
           count(env, "inbox", "", "ok", body.agent, body);
-          return json({ stored: id, note: "Stored as data. BiCM's agents read the inbox; Lotline makes no commitment." }, 201);
+          return json(receipt, 201);
         } catch {
           count(env, "inbox", "", "error");
           return json({ error: "The inbox is not available. The message was not stored." }, 503);
