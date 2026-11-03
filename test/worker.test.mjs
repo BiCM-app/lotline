@@ -139,7 +139,7 @@ test("counts carry a short agent family, kind and topic, never free text", async
   assert.equal(family(""), "");
   const env = fakeEnv();
   await post("/inbox", { kind: "offer", topic: "data", text: "LoD2 data", agent: "Erika Mustermann, Musterstr. 5" }, env);
-  assert.deepEqual(env.events.at(-1).blobs, ["inbox", "", "ok", "other", "offer", "data"]);
+  assert.deepEqual(env.events.at(-1).blobs, ["inbox", "", "ok", "other", "offer", "data", ""]);
 });
 
 test("the privacy notice is served and names the retention period", async () => {
@@ -256,20 +256,20 @@ test("own traffic: a request with x-lotline-test: 1 is counted as test, one with
   const env = fakeEnv();
   const msg = { kind: "question", topic: "method", text: "How are scenarios checked?", agent: "claudebot" };
   await post("/inbox", msg, env);
-  assert.deepEqual(env.events.at(-1).blobs, ["inbox", "", "ok", "claudebot", "question", "method"]);
+  assert.deepEqual(env.events.at(-1).blobs, ["inbox", "", "ok", "claudebot", "question", "method", ""]);
   await post("/inbox", msg, env, { [TEST_HEADER]: "1" });
-  assert.deepEqual(env.events.at(-1).blobs, ["inbox", "", "test", "", "", ""]);
+  assert.deepEqual(env.events.at(-1).blobs, ["inbox", "", "ok", "claudebot", "question", "method", "test"]);
   // The message itself is stored either way: the header changes only how it is counted.
   assert.equal(env.rows.length, 2);
   await post("/mcp", call("list_notes", {}), env, { "X-Lotline-Test": "1" });
-  assert.deepEqual(env.events.at(-1).blobs.slice(0, 3), ["mcp", "list_notes", "test"]);
+  assert.deepEqual([...env.events.at(-1).blobs.slice(0, 3), env.events.at(-1).blobs[6]], ["mcp", "list_notes", "ok", "test"]);
   await post("/mcp", call("list_notes", {}), env);
-  assert.deepEqual(env.events.at(-1).blobs.slice(0, 3), ["mcp", "list_notes", "ok"]);
+  assert.deepEqual([...env.events.at(-1).blobs.slice(0, 3), env.events.at(-1).blobs[6]], ["mcp", "list_notes", "ok", ""]);
   await worker.fetch(new Request(`${ORIGIN}/llms.txt`, { headers: { [TEST_HEADER]: "1" } }), env);
-  assert.equal(env.events.at(-1).blobs[2], "test");
+  assert.equal(env.events.at(-1).blobs[6], "test");
   for (const v of ["0", "true", ""]) {
     await worker.fetch(new Request(`${ORIGIN}/`, { headers: { [TEST_HEADER]: v } }), env);
-    assert.equal(env.events.at(-1).blobs[2], "ok", v);
+    assert.equal(env.events.at(-1).blobs[6], "", v);
   }
   // Agents are not told about the header.
   assert.ok(!llmsTxt(ORIGIN).toLowerCase().includes(TEST_HEADER));
@@ -316,4 +316,17 @@ test("the glossary note restates bicm.app in English and German", async () => {
   for (const d of dims) assert.ok(g.terms.some((t) => t.en === d), d);
   const served = await (await worker.fetch(new Request(`${ORIGIN}/notes/glossary`), fakeEnv())).json();
   assert.deepEqual(served, JSON.parse(JSON.stringify(g)));
+});
+
+test("the test header never hides a refusal or an error: the outcome stays, the count is marked test", async () => {
+  const { TEST_HEADER } = await import("../src/worker.js");
+  const env = fakeEnv();
+  await post("/inbox", { kind: "question", topic: "other", text: "mail me at x@y.com" }, env, { [TEST_HEADER]: "1" });
+  assert.deepEqual(env.events.at(-1).blobs, ["inbox", "", "rejected", "", "", "", "test"]);
+  assert.equal(env.rows.length, 0);
+  await mcp(call("leave_message", { kind: "question", topic: "other", text: "call +49 30 1234567" }), env, true);
+  assert.deepEqual([...env.events.at(-1).blobs.slice(0, 3), env.events.at(-1).blobs[6]], ["mcp", "leave_message", "rejected", "test"]);
+  const broken = fakeEnv({ INBOX: undefined });
+  await post("/inbox", { kind: "question", topic: "other", text: "hi" }, broken, { [TEST_HEADER]: "1" });
+  assert.deepEqual([broken.events.at(-1).blobs[2], broken.events.at(-1).blobs[6]], ["error", "test"]);
 });

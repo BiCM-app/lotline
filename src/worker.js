@@ -18,7 +18,8 @@
  * details are refused; senders are asked to send no personal data. Counts go to Analytics
  * Engine without IP address or user agent, and a refused message is counted without its
  * fields. A request with the header "x-lotline-test: 1" is the maintainers' own traffic
- * and is counted with outcome "test" (README.md, "For maintainers").
+ * and is counted with its usual outcome, marked "test" in a separate field (README.md, "For
+ * maintainers").
  */
 
 import { ABOUT, NOTES, KINDS, TOPICS, PRIVACY, RETENTION_MONTHS, SEARCH_TERMS, OBJECT_TYPES } from "./content.js";
@@ -243,14 +244,14 @@ export function isTest(headers) {
   return (headers.get(TEST_HEADER) || "").trim() === "1";
 }
 
-// blobs: door, tool, outcome, agent family, kind, topic. Kind and topic come from fixed lists.
-// A test request is counted with outcome "test" and no family, kind or topic, so counts can
-// exclude it. The header can be spoofed; a spoofed one only moves a request out of the
-// counts, and changes nothing else.
+// blobs: door, tool, outcome, agent family, kind, topic, traffic. Kind and topic come from
+// fixed lists. traffic is "test" for a request with the maintainers' header and "" otherwise,
+// so counts can exclude test traffic while its outcome (ok, rejected, error) stays as it was.
+// The header can be spoofed; a spoofed one only marks a request as test, and changes nothing
+// else.
 function count(env, door, tool, outcome, agent, msg, test = false) {
-  if (test) outcome = "test";
   const ok = outcome === "ok";
-  try { env.EVENTS?.writeDataPoint({ blobs: [door, tool || "", outcome, ok ? family(agent) : "", ok && msg ? msg.kind : "", ok && msg ? msg.topic : ""], indexes: [door] }); } catch { /* counts never break a request */ }
+  try { env.EVENTS?.writeDataPoint({ blobs: [door, tool || "", outcome, ok ? family(agent) : "", ok && msg ? msg.kind : "", ok && msg ? msg.topic : "", test ? "test" : ""], indexes: [door] }); } catch { /* counts never break a request */ }
 }
 
 /** Deletes messages older than the retention period; run daily by the cron trigger. */
@@ -262,7 +263,7 @@ export async function purge(env, now = new Date()) {
 }
 
 /** One MCP JSON-RPC message; returns the response object, or null for a notification. A test
- * request (isTest) is counted with outcome "test". */
+ * request (isTest) is marked "test" in its count. */
 export async function mcp(req, env, test = false) {
   const tally = (tool, outcome, agent, msg) => count(env, "mcp", tool, outcome, agent, msg, test);
   const id = req && typeof req === "object" && "id" in req ? req.id : null;

@@ -25,10 +25,12 @@ Lotline makes no commitment, quotes no price and computes no result in phase 1.
 ## For maintainers
 
 Requests that carry the header `x-lotline-test: 1` are the maintainers' own traffic. They
-are answered as usual and counted with outcome `test` (no agent family, kind or topic), so
-counts can exclude them with `blob3 != 'test'`. Any other value is counted as usual. The header
-is harmless if an outside agent sends it: it only moves that agent's own requests out of
-the counts, which can lower them and changes nothing else.
+are answered and counted as usual, with their usual outcome (`ok`, `rejected`, `error`), and
+marked `test` in a separate field (`blob7`; empty for all other requests). Counts exclude
+them with `blob7 != 'test'`, and a refused message stays visible as `rejected` whether or not
+it carries the header. Any other value of the header is counted as usual. The header is
+harmless if an outside agent sends it: it only marks that agent's own requests as test, which
+can lower counts that exclude test traffic, and changes nothing else.
 
 ## Changes
 
