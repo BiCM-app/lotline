@@ -80,9 +80,10 @@ const worker = await import(pathToFileURL(join(process.cwd(), "src/worker.js")).
 const content = await import(pathToFileURL(join(process.cwd(), "src/content.js")).href);
 const env = { DOOR: "open", INBOX: { prepare: () => ({ bind: () => ({ run: async () => {} }) }) } };
 const get = async (path) => (await worker.default.fetch(new Request(`https://lotline.bicm.app${path}`), env)).text();
-const served = [["/", await get("/")], ["/llms.txt", await get("/llms.txt")], ["/privacy", await get("/privacy")], ["/notes", await get("/notes")]];
+const served = [["/", await get("/")], ["/llms.txt", await get("/llms.txt")], ["/privacy", await get("/privacy")], ["/notes", await get("/notes")], ["/schema", await get("/schema")]];
 for (const n of content.NOTES) served.push([`/notes/${n.id}`, await get(`/notes/${n.id}`)]);
-for (const method of ["initialize", "tools/list"]) served.push([`mcp ${method}`, JSON.stringify(await worker.mcp({ jsonrpc: "2.0", id: 1, method, params: {} }, env))]);
+for (const method of ["initialize", "tools/list", "resources/list"]) served.push([`mcp ${method}`, JSON.stringify(await worker.mcp({ jsonrpc: "2.0", id: 1, method, params: {} }, env))]);
+for (const r of worker.RESOURCES) served.push([`mcp resources/read ${r.uri}`, JSON.stringify(await worker.mcp({ jsonrpc: "2.0", id: 1, method: "resources/read", params: { uri: r.uri } }, env))]);
 for (const [where, text] of served) checkPublic(`src/ (served at ${where})`, text);
 
 const cfg = JSON.parse(readFileSync("wrangler.jsonc", "utf8").replace(/^\s*\/\/.*$/gm, ""));

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import worker, { refusal, mcp, TOOLS, llmsTxt, headerRefusal, MAX_BODY } from "../src/worker.js";
+import worker, { refusal, mcp, TOOLS, llmsTxt, headerRefusal, MAX_BODY, MAX_TEXT, MAX_FIELD, inboxSchema, RESOURCES } from "../src/worker.js";
+import { NOTES, KINDS, TOPICS, SEARCH_TERMS, OBJECT_TYPES } from "../src/content.js";
 
 function fakeEnv(over = {}) {
   const rows = [];
@@ -144,4 +145,108 @@ test("counts carry a short agent family, kind and topic, never free text", async
 test("the privacy notice is served and names the retention period", async () => {
   const t = await (await worker.fetch(new Request(`${ORIGIN}/privacy`), fakeEnv())).text();
   assert.match(t, /deleted 12 months after/);
+});
+
+test("discovery carries search terms in llms.txt and in the tool descriptions", () => {
+  const t = llmsTxt(ORIGIN);
+  for (const term of SEARCH_TERMS) assert.ok(t.includes(term), term);
+  assert.ok(SEARCH_TERMS.every((term) => TOOLS[0].description.includes(term)));
+  assert.match(TOOLS.find((x) => x.name === "leave_message").description, /energy retrofit/);
+});
+
+test("every note carries ISO published and review_on dates, review after publication", async () => {
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  for (const n of NOTES) {
+    assert.match(n.published, iso, n.id);
+    assert.match(n.review_on, iso, n.id);
+    assert.ok(n.review_on > n.published, n.id);
+  }
+  const served = await (await worker.fetch(new Request(`${ORIGIN}/notes/provenance`), fakeEnv())).json();
+  assert.equal(served.review_on, NOTES.find((n) => n.id === "provenance").review_on);
+});
+
+test("the inbox schema is served, matches the validator's constants and is an MCP resource", async () => {
+  const res = await worker.fetch(new Request(`${ORIGIN}/schema`), fakeEnv());
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /^application\/schema\+json/);
+  const s = await res.json();
+  assert.deepEqual(s, JSON.parse(JSON.stringify(inboxSchema(ORIGIN))));
+  assert.deepEqual(s.properties.kind.enum, KINDS);
+  assert.deepEqual(s.properties.topic.enum, TOPICS);
+  assert.equal(s.properties.text.maxLength, MAX_TEXT);
+  assert.equal(s.properties.agent.maxLength, MAX_FIELD);
+  assert.equal(s.properties.module.maxLength, MAX_FIELD);
+  assert.deepEqual(s.required, ["kind", "topic", "text"]);
+  assert.deepEqual(s.$defs.receipt.required, ["stored", "received", "note"]);
+  // The tool's input schema is the same object the public schema describes.
+  assert.deepEqual(TOOLS.find((x) => x.name === "leave_message").inputSchema.properties, s.properties);
+  // The limits the schema states are the limits refusal() applies.
+  const ok = { kind: KINDS[0], topic: TOPICS[0], text: "x".repeat(s.properties.text.maxLength) };
+  assert.equal(refusal(ok), null);
+  assert.match(refusal({ ...ok, text: ok.text + "x" }), /limited/);
+  assert.match(refusal({ ...ok, agent: "a".repeat(s.properties.agent.maxLength + 1) }), /limited/);
+  for (const kind of s.properties.kind.enum) assert.equal(refusal({ ...ok, kind }), null);
+  for (const topic of s.properties.topic.enum) assert.equal(refusal({ ...ok, topic }), null);
+  const env = fakeEnv();
+  const init = await mcp({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }, env);
+  assert.ok(init.result.capabilities.resources);
+  const list = await mcp({ jsonrpc: "2.0", id: 2, method: "resources/list" }, env);
+  assert.deepEqual(list.result.resources.map((r) => r.uri), RESOURCES.map((r) => r.uri));
+  const read = await mcp({ jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri: `${ORIGIN}/schema` } }, env);
+  assert.deepEqual(JSON.parse(read.result.contents[0].text), s);
+  assert.equal((await mcp({ jsonrpc: "2.0", id: 4, method: "resources/read", params: { uri: `${ORIGIN}/nope` } }, env)).error.code, -32002);
+  assert.equal((await mcp({ jsonrpc: "2.0", id: 5, method: "resources/read" }, env)).error.code, -32002);
+});
+
+test("the receipt carries the id and the ISO time received, as stored", async () => {
+  const env = fakeEnv();
+  const before = new Date().toISOString();
+  const r = await (await post("/inbox", { kind: "question", topic: "method", text: "How are scenarios checked?" }, env)).json();
+  const after = new Date().toISOString();
+  assert.match(r.stored, /^[0-9a-f-]{36}$/);
+  assert.equal(new Date(r.received).toISOString(), r.received);
+  assert.ok(r.received >= before && r.received <= after);
+  assert.deepEqual(env.rows[0].slice(0, 2), [r.stored, r.received]);
+  const m = await mcp(call("leave_message", { kind: "offer", topic: "data", text: "Open LoD2 data" }), env);
+  const receipt = JSON.parse(m.result.content[0].text);
+  assert.deepEqual(Object.keys(receipt).sort(), inboxSchema().$defs.receipt.required.slice().sort());
+  assert.deepEqual(env.rows[1].slice(0, 2), [receipt.stored, receipt.received]);
+});
+
+test("the object model: knowledge, request and offer exist; capability and deliverable are reserved", async () => {
+  assert.deepEqual(OBJECT_TYPES.map((o) => [o.type, o.status]), [["knowledge", "exists"], ["request", "exists"], ["offer", "exists"], ["capability", "reserved"], ["deliverable", "reserved"]]);
+  for (const o of OBJECT_TYPES.filter((x) => x.status === "reserved")) {
+    assert.equal(o.served, null);
+    assert.match(o.description, /None yet\.$/);
+  }
+  assert.ok(KINDS.includes("request") && KINDS.includes("offer"));
+  const t = llmsTxt(ORIGIN);
+  assert.match(t, /## Object model/);
+  assert.match(t, /- capability \(reserved\): A reserved type\. None yet\./);
+  const note = await (await worker.fetch(new Request(`${ORIGIN}/notes/object-model`), fakeEnv())).json();
+  for (const o of OBJECT_TYPES) assert.match(note.text, new RegExp(o.type, "i"));
+  const read = await mcp({ jsonrpc: "2.0", id: 1, method: "resources/read", params: { uri: `${ORIGIN}/notes/object-model` } }, fakeEnv());
+  assert.deepEqual(JSON.parse(read.result.contents[0].text), note);
+});
+
+test("a field outside the schema is refused, over HTTP and MCP, and nothing is stored", async () => {
+  const env = fakeEnv();
+  const msg = { kind: "question", topic: "method", text: "hi", email: "x" };
+  assert.match(refusal(msg), /Unknown field: email/);
+  const r = await post("/inbox", msg, env);
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /Allowed fields: kind, topic, text, agent, module/);
+  assert.ok((await mcp(call("leave_message", msg), env)).result.isError);
+  assert.equal(env.rows.length, 0);
+  assert.equal(inboxSchema().additionalProperties, false);
+  assert.deepEqual(Object.keys(inboxSchema().properties), ["kind", "topic", "text", "agent", "module"]);
+});
+
+test("lengths count characters as JSON Schema maxLength does", () => {
+  const ok = { kind: "question", topic: "method" };
+  const emoji = "\u{1F3E0}"; // one character, two UTF-16 units
+  assert.equal(refusal({ ...ok, text: emoji.repeat(MAX_TEXT) }), null);
+  assert.match(refusal({ ...ok, text: emoji.repeat(MAX_TEXT + 1) }), /limited/);
+  assert.equal(refusal({ ...ok, text: "x", agent: emoji.repeat(MAX_FIELD) }), null);
+  assert.match(refusal({ ...ok, text: "x", agent: emoji.repeat(MAX_FIELD + 1) }), /agent is limited/);
 });

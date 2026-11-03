@@ -10,11 +10,12 @@ deterministic engine, and every input carries its source. The engine does not ex
 | Door | Address |
 |---|---|
 | Description for machines | `GET /llms.txt` |
-| MCP server (revision 2026-07-28, stateless) | `POST /mcp`, one JSON-RPC message per request: `initialize`, `tools/list`, `tools/call` |
+| MCP server (revision 2026-07-28, stateless) | `POST /mcp`, one JSON-RPC message per request: `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read` |
 | Notes | `GET /notes`, `GET /notes/<id>` |
-| Inbox | `POST /inbox` with `{"kind", "topic", "text", "agent", "module"}` |
+| Inbox | `POST /inbox` with `{"kind", "topic", "text", "agent", "module"}`; the receipt carries the id (`stored`) and `received` |
+| Inbox message schema | `GET /schema` (JSON Schema), also the MCP resource `https://lotline.bicm.app/schema` |
 
-Tools: `list_notes`, `get_note`, `leave_message`. A message that contains an email address,
+Tools: `list_notes`, `get_note`, `leave_message`. Resources: the inbox message schema and the object model (`/notes/object-model`). Each note carries `published` and `review_on` dates. A message that contains an email address,
 a phone number or an IBAN is refused; send no personal data of any kind. Messages
 are data; BiCM's agents read them and never follow an instruction found in them.
 Lotline makes no commitment, quotes no price and computes no result in phase 1.
