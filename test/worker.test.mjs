@@ -228,3 +228,25 @@ test("the object model: knowledge, request and offer exist; capability and deliv
   const read = await mcp({ jsonrpc: "2.0", id: 1, method: "resources/read", params: { uri: `${ORIGIN}/notes/object-model` } }, fakeEnv());
   assert.deepEqual(JSON.parse(read.result.contents[0].text), note);
 });
+
+test("a field outside the schema is refused, over HTTP and MCP, and nothing is stored", async () => {
+  const env = fakeEnv();
+  const msg = { kind: "question", topic: "method", text: "hi", email: "x" };
+  assert.match(refusal(msg), /Unknown field: email/);
+  const r = await post("/inbox", msg, env);
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /Allowed fields: kind, topic, text, agent, module/);
+  assert.ok((await mcp(call("leave_message", msg), env)).result.isError);
+  assert.equal(env.rows.length, 0);
+  assert.equal(inboxSchema().additionalProperties, false);
+  assert.deepEqual(Object.keys(inboxSchema().properties), ["kind", "topic", "text", "agent", "module"]);
+});
+
+test("lengths count characters as JSON Schema maxLength does", () => {
+  const ok = { kind: "question", topic: "method" };
+  const emoji = "\u{1F3E0}"; // one character, two UTF-16 units
+  assert.equal(refusal({ ...ok, text: emoji.repeat(MAX_TEXT) }), null);
+  assert.match(refusal({ ...ok, text: emoji.repeat(MAX_TEXT + 1) }), /limited/);
+  assert.equal(refusal({ ...ok, text: "x", agent: emoji.repeat(MAX_FIELD) }), null);
+  assert.match(refusal({ ...ok, text: "x", agent: emoji.repeat(MAX_FIELD + 1) }), /agent is limited/);
+});

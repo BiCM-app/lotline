@@ -92,17 +92,24 @@ const CONTACT = [
   /\b[a-z]{2}\d{2}(?: ?[a-z0-9]{4}){3,7}\b/i, // IBAN
 ];
 
+const FIELDS = ["kind", "topic", "text", "agent", "module"];
+
+/** Length in characters (Unicode code points), as JSON Schema maxLength counts; Infinity when far too long. */
+const chars = (s, max) => (s.length > 2 * max ? Infinity : [...s].length);
+
 /** Why a message cannot be stored, or null. */
 export function refusal(msg) {
   if (!msg || typeof msg !== "object" || Array.isArray(msg)) return "The body must be a JSON object.";
+  const extra = Object.keys(msg).filter((k) => !FIELDS.includes(k));
+  if (extra.length) return `Unknown field: ${extra[0].slice(0, 40)}. Allowed fields: ${FIELDS.join(", ")}. Send no personal data.`;
   if (!KINDS.includes(msg.kind)) return `kind must be one of: ${KINDS.join(", ")}.`;
   if (!TOPICS.includes(msg.topic)) return `topic must be one of: ${TOPICS.join(", ")}.`;
   if (typeof msg.text !== "string" || !msg.text.trim()) return "text is required.";
-  if (msg.text.length > MAX_TEXT) return `text is limited to ${MAX_TEXT} characters.`;
+  if (chars(msg.text, MAX_TEXT) > MAX_TEXT) return `text is limited to ${MAX_TEXT} characters.`;
   for (const k of ["agent", "module"]) {
     if (msg[k] === undefined) continue;
     if (typeof msg[k] !== "string") return `${k} must be text.`;
-    if (msg[k].length > MAX_FIELD) return `${k} is limited to ${MAX_FIELD} characters.`;
+    if (chars(msg[k], MAX_FIELD) > MAX_FIELD) return `${k} is limited to ${MAX_FIELD} characters.`;
   }
   const fields = [msg.text, msg.agent || "", msg.module || ""];
   if (fields.some((f) => CONTACT.some((re) => re.test(f)))) return "Contact details are not accepted. Send no personal data.";
@@ -198,7 +205,7 @@ export function llmsTxt(origin, open = true) {
 }
 
 export const TOOLS = [
-  { name: "list_notes", description: `List BiCM's public notes (id and title). Topics: ${SEARCH_TERMS.join("; ")}.`, inputSchema: { type: "object", properties: {}, additionalProperties: false } },
+  { name: "list_notes", description: `List BiCM's public notes (id and title). Search terms for what BiCM works on: ${SEARCH_TERMS.join("; ")}.`, inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "get_note", description: "Read one public note by id: text, source, published and review_on dates.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } },
   {
     name: "leave_message",

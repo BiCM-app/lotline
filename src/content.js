@@ -16,7 +16,7 @@ export const ABOUT = {
 export const SEARCH_TERMS = [
   "feasibility study",
   "early feasibility studies for buildings, sites and districts",
-  "interventions in the built environment",
+  "feasibility studies for the built environment",
   "energy retrofit",
   "portfolio screening",
   "conversion and new build",
